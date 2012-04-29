@@ -43,8 +43,10 @@ module Sidekiq
         @sidekiq_options = get_sidekiq_options.merge(stringify_keys(opts || {}))
       end
 
+      DEFAULT_SIDEKIQ_OPTIONS = { 'unique' => true, 'retry' => true, 'queue' => 'default' }
+
       def get_sidekiq_options # :nodoc:
-        defined?(@sidekiq_options) ? @sidekiq_options : { 'unique' => true, 'retry' => true, 'queue' => 'default' }
+        defined?(@sidekiq_options) ? @sidekiq_options : DEFAULT_SIDEKIQ_OPTIONS
       end
 
       def stringify_keys(hash) # :nodoc:
