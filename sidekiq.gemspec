@@ -24,4 +24,5 @@ Gem::Specification.new do |gem|
   gem.add_development_dependency      'rake'
   gem.add_development_dependency      'actionmailer', '~> 3'
   gem.add_development_dependency      'activerecord', '~> 3'
+  gem.add_development_dependency      'mongoid', '~> 2.4.9'
 end
