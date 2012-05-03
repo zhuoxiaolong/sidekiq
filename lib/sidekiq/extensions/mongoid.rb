@@ -18,15 +18,18 @@ module Sidekiq
     end
 
     module Mongoid
-      module ClassMethods
-        def delay
-          Proxy.new(DelayedDocument, self)
-        end
-      end
-      def self.included(receiver)
-        receiver.extend         ClassMethods
+      def delay
+        Proxy.new(DelayedDocument, self)
       end
     end
 
+  end
+end
+
+module Mongoid
+  module Document
+    def self.included(receiver)
+      receiver.extend Sidekiq::Extensions::Mongoid
+    end
   end
 end

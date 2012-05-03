@@ -36,7 +36,6 @@ class TestExtensions < MiniTest::Unit::TestCase
     describe 'Mongoid' do
       class MyDoc
         include Mongoid::Document
-        include Sidekiq::Extensions::Mongoid
         def self.long_class_method
           raise "Should not be called!"
         end
