@@ -3,11 +3,14 @@ require 'sidekiq/extensions/generic_proxy'
 module Sidekiq
   module Extensions
     ##
-    # Adds a 'delay' method to ActiveRecord to offload arbitrary method
+    # Adds a 'delay' method to ActiveRecords to offload instance method
     # execution to Sidekiq.  Examples:
     #
-    # User.delay.delete_inactive
     # User.recent_signups.each { |user| user.delay.mark_as_awesome }
+    #
+    # Please note, this is not recommended as this will serialize the entire
+    # object to Redis.  Your Sidekiq jobs should pass IDs, not entire instances.
+    # This is here for backwards compatibility with Delayed::Job only.
     class DelayedModel
       include Sidekiq::Worker
 
@@ -20,6 +23,9 @@ module Sidekiq
     module ActiveRecord
       def delay
         Proxy.new(DelayedModel, self)
+      end
+      def delay_for(interval)
+        Proxy.new(DelayedModel, self, Time.now.to_f + interval.to_f)
       end
     end
 

@@ -24,14 +24,20 @@ module Sidekiq
     #   assert_equal 1, Sidekiq::Extensions::DelayedMailer.jobs.size
     #
     module ClassMethods
-      alias_method :perform_async_old, :perform_async
-      def perform_async(*args)
-        jobs << { 'class' => self.name, 'args' => args }
+      alias_method :client_push_old, :client_push
+      def client_push(opts)
+        jobs << opts
         true
       end
 
       def jobs
         @pushed ||= []
+      end
+
+      def drain
+        while job = jobs.shift do
+          new.perform(*job['args'])
+        end
       end
     end
   end

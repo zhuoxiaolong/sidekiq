@@ -1,33 +1,14 @@
-require 'time'
-require 'logger'
+require 'socket'
+require 'sidekiq/exception_handler'
 
 module Sidekiq
   ##
   # This module is part of Sidekiq core and not intended for extensions.
   #
   module Util
+    include ExceptionHandler
 
-    DEFAULT_EXPIRY = 24 * 60 * 60
-
-    class Pretty < Logger::Formatter
-      # Provide a call() method that returns the formatted message.
-      def call(severity, time, program_name, message)
-        "#{time.utc.iso8601} #{Process.pid} TID-#{Thread.current.object_id.to_s(36)} #{severity}: #{message}\n"
-      end
-    end
-
-    def self.logger
-      @logger ||= begin
-        log = Logger.new(STDOUT)
-        log.level = Logger::INFO
-        log.formatter = Pretty.new
-        log
-      end
-    end
-
-    def self.logger=(log)
-      @logger = (log ? log : Logger.new('/dev/null'))
-    end
+    EXPIRY = 60 * 60 * 24
 
     def constantize(camel_cased_word)
       names = camel_cased_word.split('::')
@@ -42,14 +23,12 @@ module Sidekiq
 
     def watchdog(last_words)
       yield
-    rescue => ex
-      logger.error last_words
-      logger.error ex
-      logger.error ex.backtrace.join("\n")
+    rescue Exception => ex
+      handle_exception(ex, { :context => last_words })
     end
 
     def logger
-      Sidekiq::Util.logger
+      Sidekiq.logger
     end
 
     def redis(&block)
@@ -58,6 +37,10 @@ module Sidekiq
 
     def process_id
       Process.pid
+    end
+
+    def hostname
+      Socket.gethostname
     end
   end
 end

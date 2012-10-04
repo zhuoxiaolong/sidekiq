@@ -1,6 +1,5 @@
 require 'helper'
-require 'multi_json'
-require 'sidekiq/retry'
+require 'sidekiq/scheduled'
 require 'sidekiq/middleware/server/retry_jobs'
 
 class TestRetry < MiniTest::Unit::TestCase
@@ -113,9 +112,11 @@ class TestRetry < MiniTest::Unit::TestCase
     it 'should poll like a bad mother...SHUT YO MOUTH' do
       fake_msg = Sidekiq.dump_json({ 'class' => 'Bob', 'args' => [1,2], 'queue' => 'someq' })
       @redis.expect :multi, [[fake_msg], 1], []
-      @redis.expect :rpush, 1, ['queue:someq', fake_msg]
+      @redis.expect :multi, [[], nil], []
+      @redis.expect :multi, [[], nil], []
+      @redis.expect :multi, [[], nil], []
 
-      inst = Sidekiq::Retry::Poller.new
+      inst = Sidekiq::Scheduled::Poller.new
       inst.poll
 
       @redis.verify

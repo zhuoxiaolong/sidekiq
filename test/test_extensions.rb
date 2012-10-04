@@ -29,6 +29,12 @@ class TestExtensions < MiniTest::Unit::TestCase
       assert_equal 1, Sidekiq.redis {|c| c.llen('queue:default') }
     end
 
+    it 'allows delayed scheduling of AR class methods' do
+      assert_equal 0, Sidekiq.redis {|c| c.zcard('schedule') }
+      MyModel.delay_for(5.days).long_class_method
+      assert_equal 1, Sidekiq.redis {|c| c.zcard('schedule') }
+    end
+
     class UserMailer < ActionMailer::Base
       def greetings(a, b)
         raise "Should not be called!"
@@ -42,28 +48,29 @@ class TestExtensions < MiniTest::Unit::TestCase
       assert_equal ['default'], Sidekiq::Client.registered_queues
       assert_equal 1, Sidekiq.redis {|c| c.llen('queue:default') }
     end
-  end
 
-  describe 'sidekiq rails extensions configuration' do
-    before do
-      @options = Sidekiq.options
+    it 'allows delayed scheduling of AM mails' do
+      assert_equal 0, Sidekiq.redis {|c| c.zcard('schedule') }
+      UserMailer.delay_for(5.days).greetings(1, 2)
+      assert_equal 1, Sidekiq.redis {|c| c.zcard('schedule') }
     end
 
-    after do
-      Sidekiq.options = @options
+    class SomeClass
+      def self.doit(arg)
+      end
     end
 
-    it 'should set enable_rails_extensions option to true by default' do
-      assert Sidekiq.options[:enable_rails_extensions]
+    it 'allows delay of any ole class method' do
+      SomeClass.delay.doit(Date.today)
     end
 
-    it 'should extend ActiveRecord and ActiveMailer if enable_rails_extensions is true' do
-      assert Sidekiq.hook_rails!
+    module SomeModule
+      def self.doit(arg)
+      end
     end
 
-    it 'should not extend ActiveRecord and ActiveMailer if enable_rails_extensions is false' do
-      Sidekiq.options = { :enable_rails_extensions => false }
-      refute Sidekiq.hook_rails!
+    it 'allows delay of any module class method' do
+      SomeModule.delay.doit(Date.today)
     end
   end
 end

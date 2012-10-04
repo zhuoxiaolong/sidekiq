@@ -12,8 +12,9 @@ module Sidekiq
 
     TIMEOUT = 1
 
-    def initialize(mgr, queues)
+    def initialize(mgr, queues, strict)
       @mgr = mgr
+      @strictly_ordered_queues = strict
       @queues = queues.map { |q| "queue:#{q}" }
       @unique_queues = @queues.uniq
     end
@@ -28,6 +29,8 @@ module Sidekiq
     # a new fetch if the current fetch turned up nothing.
     def fetch
       watchdog('Fetcher#fetch died') do
+        return if Sidekiq::Fetcher.done?
+
         begin
           queue = nil
           msg = nil
@@ -47,6 +50,17 @@ module Sidekiq
       end
     end
 
+    # Ugh.  Say hello to a bloody hack.
+    # Can't find a clean way to get the fetcher to just stop processing
+    # its mailbox when shutdown starts.
+    def self.done!
+      @done = true
+    end
+
+    def self.done?
+      @done
+    end
+
     private
 
     # Creating the Redis#blpop command takes into account any
@@ -55,6 +69,7 @@ module Sidekiq
     # recreate the queue command each time we invoke Redis#blpop
     # to honor weights and avoid queue starvation.
     def queues_cmd
+      return @unique_queues.dup << TIMEOUT if @strictly_ordered_queues
       queues = @queues.sample(@unique_queues.size).uniq
       queues.concat(@unique_queues - queues)
       queues << TIMEOUT

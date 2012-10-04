@@ -1,5 +1,4 @@
 require 'celluloid'
-require 'multi_json'
 
 require 'sidekiq/util'
 require 'sidekiq/processor'
@@ -19,8 +18,6 @@ module Sidekiq
     trap_exit :processor_died
 
     def initialize(options={})
-      logger.info "Booting sidekiq #{Sidekiq::VERSION} with Redis at #{redis {|x| x.client.id}}"
-      logger.info "Running in #{RUBY_DESCRIPTION}"
       logger.debug { options.inspect }
       @count = options[:concurrency] || 25
       @done_callback = nil
@@ -28,7 +25,7 @@ module Sidekiq
       @in_progress = {}
       @done = false
       @busy = []
-      @fetcher = Fetcher.new(current_actor, options[:queues])
+      @fetcher = Fetcher.new(current_actor, options[:queues], !!options[:strict])
       @ready = @count.times.map { Processor.new_link(current_actor) }
       procline
     end
@@ -39,6 +36,7 @@ module Sidekiq
         timeout = options[:timeout]
 
         @done = true
+        Sidekiq::Fetcher.done!
         @fetcher.terminate! if @fetcher.alive?
 
         logger.info { "Shutting down #{@ready.size} quiet workers" }
@@ -110,7 +108,7 @@ module Sidekiq
           processor = @ready.pop
           @in_progress[processor.object_id] = [msg, queue]
           @busy << processor
-          processor.process!(Sidekiq.load_json(msg), queue)
+          processor.process!(msg, queue)
         end
       end
     end
@@ -129,6 +127,7 @@ module Sidekiq
               # processor is an actor proxy and we can't call any methods
               # that would go to the actor (since it's busy).  Instead
               # we'll use the object_id to track the worker's data here.
+              processor.terminate if processor.alive?
               msg, queue = @in_progress[processor.object_id]
               conn.lpush("queue:#{queue}", msg)
             end

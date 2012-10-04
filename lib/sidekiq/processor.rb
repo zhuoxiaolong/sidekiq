@@ -1,21 +1,24 @@
 require 'celluloid'
-require 'multi_json'
 require 'sidekiq/util'
 
 require 'sidekiq/middleware/server/active_record'
-require 'sidekiq/middleware/server/exception_handler'
 require 'sidekiq/middleware/server/retry_jobs'
 require 'sidekiq/middleware/server/logging'
 require 'sidekiq/middleware/server/timeout'
 
 module Sidekiq
+  ##
+  # The Processor receives a message from the Manager and actually
+  # processes it.  It instantiates the worker, runs the middleware
+  # chain and then calls Sidekiq::Worker#perform.
   class Processor
     include Util
     include Celluloid
 
+#    exclusive :process
+
     def self.default_middleware
       Middleware::Chain.new do |m|
-        m.add Middleware::Server::ExceptionHandler
         m.add Middleware::Server::Logging
         m.add Middleware::Server::RetryJobs
         m.add Middleware::Server::ActiveRecord
@@ -27,14 +30,21 @@ module Sidekiq
       @boss = boss
     end
 
-    def process(msg, queue)
-      klass  = constantize(msg['class'])
-      worker = klass.new
+    def process(msgstr, queue)
       defer do
-        stats(worker, msg, queue) do
-          Sidekiq.server_middleware.invoke(worker, msg, queue) do
-            worker.perform(*msg['args'])
+        begin
+          msg = Sidekiq.load_json(msgstr)
+          klass  = constantize(msg['class'])
+          worker = klass.new
+
+          stats(worker, msg, queue) do
+            Sidekiq.server_middleware.invoke(worker, msg, queue) do
+              worker.perform(*cloned(msg['args']))
+            end
           end
+          rescue Exception => ex
+            handle_exception(ex, msg || { :message => msgstr })
+          raise
         end
       end
       @boss.processor_done!(current_actor)
@@ -55,22 +65,20 @@ module Sidekiq
       redis do |conn|
         conn.multi do
           conn.sadd('workers', self)
-          conn.setex("worker:#{self}:started", DEFAULT_EXPIRY, Time.now.to_s)
-          hash = {:queue => queue, :payload => msg, :run_at => Time.now.strftime("%Y/%m/%d %H:%M:%S %Z")}
-          conn.setex("worker:#{self}", DEFAULT_EXPIRY, Sidekiq.dump_json(hash))
+          conn.setex("worker:#{self}:started", EXPIRY, Time.now.to_s)
+          hash = {:queue => queue, :payload => msg, :run_at => Time.now.to_i }
+          conn.setex("worker:#{self}", EXPIRY, Sidekiq.dump_json(hash))
         end
       end
 
       dying = false
       begin
         yield
-      rescue
+      rescue Exception
         dying = true
-        # Uh oh, error.  We will die so unregister as much as we can first.
         redis do |conn|
           conn.multi do
             conn.incrby("stat:failed", 1)
-            conn.del("stat:processed:#{self}")
           end
         end
         raise
@@ -81,15 +89,21 @@ module Sidekiq
             conn.del("worker:#{self}")
             conn.del("worker:#{self}:started")
             conn.incrby("stat:processed", 1)
-            conn.incrby("stat:processed:#{self}", 1) unless dying
           end
         end
       end
-
     end
 
-    def hostname
-      @h ||= `hostname`.strip
+    # Singleton classes are not clonable.
+    SINGLETON_CLASSES = [ NilClass, TrueClass, FalseClass, Symbol, Fixnum, Float ].freeze
+
+    # Clone the arguments passed to the worker so that if
+    # the message fails, what is pushed back onto Redis hasn't
+    # been mutated by the worker.
+    def cloned(ary)
+      ary.map do |val|
+        SINGLETON_CLASSES.include?(val.class) ? val : val.clone
+      end
     end
   end
 end

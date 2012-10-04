@@ -1,14 +1,21 @@
 require 'sidekiq/version'
+require 'sidekiq/logging'
 require 'sidekiq/client'
 require 'sidekiq/worker'
 require 'sidekiq/redis_connection'
 require 'sidekiq/util'
+require 'sidekiq/stats'
 
+require 'sidekiq/extensions/class_methods'
 require 'sidekiq/extensions/action_mailer'
 require 'sidekiq/extensions/active_record'
-require 'sidekiq/rails' if defined?(::Rails)
+require 'sidekiq/rails' if defined?(::Rails::Engine)
+
+require 'multi_json'
 
 module Sidekiq
+  NAME = "Sidekiq"
+  LICENSE = 'See LICENSE and the LGPL-3.0 for licensing details.'
 
   DEFAULTS = {
     :queues => [],
@@ -16,7 +23,6 @@ module Sidekiq
     :require => '.',
     :environment => nil,
     :timeout => 8,
-    :enable_rails_extensions => true,
   }
 
   def self.options
@@ -83,21 +89,23 @@ module Sidekiq
   end
 
   def self.load_json(string)
-    # Can't reliably detect whether MultiJson responds to load, since it's
-    # a reserved word. Use adapter as a proxy for new features.
-    if MultiJson.respond_to?(:adapter)
-      MultiJson.load(string)
-    else
-      MultiJson.decode(string)
-    end
+    MultiJson.decode(string)
   end
 
   def self.dump_json(object)
-    if MultiJson.respond_to?(:dump)
-      MultiJson.dump(object)
-    else
-      MultiJson.encode(object)
-    end
+    MultiJson.encode(object)
+  end
+
+  def self.logger
+    Sidekiq::Logging.logger
+  end
+
+  def self.logger=(log)
+    Sidekiq::Logging.logger = log
+  end
+
+  def self.poll_interval=(interval)
+    self.options[:poll_interval] = interval
   end
 
 end

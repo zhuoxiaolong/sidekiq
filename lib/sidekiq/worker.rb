@@ -1,4 +1,5 @@
 require 'sidekiq/client'
+require 'sidekiq/core_ext'
 
 module Sidekiq
 
@@ -22,31 +23,42 @@ module Sidekiq
   module Worker
     def self.included(base)
       base.extend(ClassMethods)
+      base.class_attribute :sidekiq_options_hash
+    end
+
+    def logger
+      Sidekiq.logger
     end
 
     module ClassMethods
       def perform_async(*args)
-        Sidekiq::Client.push('class' => self, 'args' => args)
+        client_push('class' => self, 'args' => args)
       end
+
+      def perform_in(interval, *args)
+        int = interval.to_f
+        ts = (int < 1_000_000_000 ? Time.now.to_f + int : int)
+        client_push('class' => self, 'args' => args, 'at' => ts)
+      end
+      alias_method :perform_at, :perform_in
 
       ##
       # Allows customization for this type of Worker.
       # Legal options:
       #
-      #   :unique - enable the UniqueJobs middleware for this Worker, default *true*
       #   :queue - use a named queue for this Worker, default 'default'
       #   :retry - enable the RetryJobs middleware for this Worker, default *true*
       #   :timeout - timeout the perform method after N seconds, default *nil*
       #   :backtrace - whether to save any error backtrace in the retry payload to display in web UI,
       #      can be true, false or an integer number of lines to save, default *false*
       def sidekiq_options(opts={})
-        @sidekiq_options = get_sidekiq_options.merge(stringify_keys(opts || {}))
+        self.sidekiq_options_hash = get_sidekiq_options.merge(stringify_keys(opts || {}))
       end
 
-      DEFAULT_SIDEKIQ_OPTIONS = { 'unique' => true, 'retry' => true, 'queue' => 'default' }
+      DEFAULT_OPTIONS = { 'retry' => true, 'queue' => 'default' }
 
       def get_sidekiq_options # :nodoc:
-        defined?(@sidekiq_options) ? @sidekiq_options : DEFAULT_SIDEKIQ_OPTIONS
+        self.sidekiq_options_hash ||= DEFAULT_OPTIONS
       end
 
       def stringify_keys(hash) # :nodoc:
@@ -55,6 +67,11 @@ module Sidekiq
         end
         hash
       end
+
+      def client_push(*args) # :nodoc:
+        Sidekiq::Client.push(*args)
+      end
+
     end
   end
 end

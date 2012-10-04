@@ -1,19 +1,32 @@
 trap 'INT' do
   # Handle Ctrl-C in JRuby like MRI
   # http://jira.codehaus.org/browse/JRUBY-4637
-  Thread.main.raise Interrupt
+  Sidekiq::CLI.instance.interrupt
 end
 
 trap 'TERM' do
   # Heroku sends TERM and then waits 10 seconds for process to exit.
-  Thread.main.raise Interrupt
+  Sidekiq::CLI.instance.interrupt
 end
 
 trap 'USR1' do
-  Sidekiq::Util.logger.info "Received USR1, no longer accepting new work"
+  Sidekiq.logger.info "Received USR1, no longer accepting new work"
   mgr = Sidekiq::CLI.instance.manager
   mgr.stop! if mgr
 end
+
+trap 'TTIN' do
+  Thread.list.each do |thread|
+    Sidekiq.logger.info "Thread TID-#{thread.object_id.to_s(36)} #{thread['label']}"
+    if thread.backtrace
+      Sidekiq.logger.info thread.backtrace.join("\n")
+    else
+      Sidekiq.logger.info "<no backtrace available>"
+    end
+  end
+end
+
+$stdout.sync = true
 
 require 'yaml'
 require 'singleton'
@@ -23,7 +36,7 @@ require 'celluloid'
 require 'sidekiq'
 require 'sidekiq/util'
 require 'sidekiq/manager'
-require 'sidekiq/retry'
+require 'sidekiq/scheduled'
 
 module Sidekiq
   class CLI
@@ -36,18 +49,20 @@ module Sidekiq
 
     def initialize
       @code = nil
+      @interrupt_mutex = Mutex.new
+      @interrupted = false
     end
 
     def parse(args=ARGV)
       @code = nil
-      Sidekiq::Util.logger
+      Sidekiq.logger
 
       cli = parse_options(args)
       config = parse_config(cli)
       options.merge!(config.merge(cli))
 
-      Sidekiq::Util.logger.level = Logger::DEBUG if options[:verbose]
-      Celluloid.logger = nil
+      Sidekiq.logger.level = Logger::DEBUG if options[:verbose]
+      Celluloid.logger = nil unless options[:verbose]
 
       validate!
       write_pid
@@ -55,21 +70,34 @@ module Sidekiq
     end
 
     def run
+      logger.info "Booting Sidekiq #{Sidekiq::VERSION} with Redis at #{redis {|x| x.client.id}}"
+      logger.info "Running in #{RUBY_DESCRIPTION}"
+      logger.info Sidekiq::LICENSE
+
       @manager = Sidekiq::Manager.new(options)
-      poller = Sidekiq::Retry::Poller.new
+      poller = Sidekiq::Scheduled::Poller.new
       begin
         logger.info 'Starting processing, hit Ctrl-C to stop'
         @manager.start!
-        poller.poll!
+        poller.poll!(true)
         sleep
       rescue Interrupt
         logger.info 'Shutting down'
-        poller.terminate if poller.alive?
+        poller.terminate! if poller.alive?
         @manager.stop!(:shutdown => true, :timeout => options[:timeout])
         @manager.wait(:shutdown)
         # Explicitly exit so busy Processor threads can't block
         # process shutdown.
         exit(0)
+      end
+    end
+
+    def interrupt
+      @interrupt_mutex.synchronize do
+        unless @interrupted
+          @interrupted = true
+          Thread.main.raise Interrupt
+        end
       end
     end
 
@@ -104,7 +132,6 @@ module Sidekiq
 
     def validate!
       options[:queues] << 'default' if options[:queues].empty?
-      options[:queues].shuffle!
 
       if !File.exist?(options[:require]) ||
          (File.directory?(options[:require]) && !File.exist?("#{options[:require]}/config/application.rb"))
@@ -121,13 +148,14 @@ module Sidekiq
       opts = {}
 
       @parser = OptionParser.new do |o|
-         o.on "-q", "--queue QUEUE,WEIGHT", "Queue to process, with optional weight" do |arg|
-          q, weight = arg.split(",")
-          parse_queues(opts, q, weight)
+        o.on "-q", "--queue QUEUE[,WEIGHT]...", "Queues to process with optional weights" do |arg|
+          queues_and_weights = arg.scan(/([\w-]+),?(\d*)/)
+          queues_and_weights.each {|queue_and_weight| parse_queues(opts, *queue_and_weight)}
+          opts[:strict] = queues_and_weights.collect(&:last).none? {|weight| weight != ''}
         end
 
         o.on "-v", "--verbose", "Print more verbose output" do
-          Sidekiq::Util.logger.level = Logger::DEBUG
+          Sidekiq.logger.level = ::Logger::DEBUG
         end
 
         o.on '-e', '--environment ENV', "Application environment" do |arg|
@@ -188,7 +216,7 @@ module Sidekiq
     end
 
     def parse_queues(opts, q, weight)
-      (weight || 1).to_i.times do
+      [weight.to_i, 1].max.times do
        (opts[:queues] ||= []) << q
       end
     end

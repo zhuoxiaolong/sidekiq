@@ -3,36 +3,6 @@ require 'sidekiq/client'
 require 'sidekiq/worker'
 
 class TestClient < MiniTest::Unit::TestCase
-  describe 'with real redis' do
-    before do
-      Sidekiq.redis = REDIS
-      Sidekiq.redis {|c| c.flushdb }
-    end
-
-    class QueueWorker
-      include Sidekiq::Worker
-      sidekiq_options :queue => 'customqueue'
-    end
-
-    it 'does not push duplicate messages when configured for unique only' do
-      Sidekiq.client_middleware do |chain|
-        chain.add Sidekiq::Middleware::Client::UniqueJobs
-      end
-      QueueWorker.sidekiq_options :unique => true
-      10.times { Sidekiq::Client.push('class' => QueueWorker, 'args' => [1, 2]) }
-      assert_equal 1, Sidekiq.redis {|c| c.llen("queue:customqueue") }
-    end
-
-    it 'does push duplicate messages when not configured for unique only' do
-      Sidekiq.client_middleware do |chain|
-        chain.add Sidekiq::Middleware::Client::UniqueJobs
-      end
-      QueueWorker.sidekiq_options :unique => false
-      10.times { Sidekiq::Client.push('class' => QueueWorker, 'args' => [1, 2]) }
-      assert_equal 10, Sidekiq.redis {|c| c.llen("queue:customqueue") }
-    end
-  end
-
   describe 'with mock redis' do
     before do
       @redis = MiniTest::Mock.new
@@ -66,11 +36,16 @@ class TestClient < MiniTest::Unit::TestCase
       @redis.expect :rpush, 1, ['queue:foo', String]
       pushed = Sidekiq::Client.push('queue' => 'foo', 'class' => MyWorker, 'args' => [1, 2])
       assert pushed
+      assert_equal 24, pushed.size
       @redis.verify
     end
 
     class MyWorker
       include Sidekiq::Worker
+    end
+
+    it 'has default options' do
+      assert_equal Sidekiq::Worker::ClassMethods::DEFAULT_OPTIONS, MyWorker.get_sidekiq_options
     end
 
     it 'handles perform_async' do
@@ -90,6 +65,13 @@ class TestClient < MiniTest::Unit::TestCase
     it 'enqueues messages to redis' do
       @redis.expect :rpush, 1, ['queue:default', String]
       pushed = Sidekiq::Client.enqueue(MyWorker, 1, 2)
+      assert pushed
+      @redis.verify
+    end
+
+    it 'enqueues messages to redis' do
+      @redis.expect :rpush, 1, ['queue:custom_queue', String]
+      pushed = Sidekiq::Client.enqueue_to(:custom_queue, MyWorker, 1, 2)
       assert pushed
       @redis.verify
     end
@@ -114,6 +96,57 @@ class TestClient < MiniTest::Unit::TestCase
     it 'retrieves workers' do
       @redis.expect :smembers, ['bob'], ['workers']
       assert_equal ['bob'], Sidekiq::Client.registered_workers
+    end
+  end
+
+  describe 'bulk' do
+    it 'can push a large set of jobs at once' do
+      a = Time.now
+      count = Sidekiq::Client.push_bulk('class' => QueuedWorker, 'args' => (1..1_000).to_a.map { |x| Array(x) })
+      assert_equal 1_000, count
+    end
+  end
+
+  class BaseWorker
+    include Sidekiq::Worker
+    sidekiq_options 'retry' => 'base'
+  end
+  class AWorker < BaseWorker
+  end
+  class BWorker < BaseWorker
+    sidekiq_options 'retry' => 'b'
+  end
+
+  describe 'client middleware' do
+
+    class Stopper
+      def call(worker_class, message, queue)
+        yield if message['args'].first.odd?
+      end
+    end
+
+    it 'can stop some of the jobs from pushing' do
+      Sidekiq.client_middleware.add Stopper
+      begin
+        assert_equal nil, Sidekiq::Client.push('class' => MyWorker, 'args' => [0])
+        assert_match /[0-9a-f]{12}/, Sidekiq::Client.push('class' => MyWorker, 'args' => [1])
+        assert_equal 1, Sidekiq::Client.push_bulk('class' => MyWorker, 'args' => [[0], [1]])
+      ensure
+        Sidekiq.client_middleware.remove Stopper
+      end
+    end
+  end
+
+  describe 'inheritance' do
+    it 'should inherit sidekiq options' do
+      assert_equal 'base', AWorker.get_sidekiq_options['retry']
+      assert_equal 'b', BWorker.get_sidekiq_options['retry']
+    end
+  end
+
+  describe 'item normalization' do
+    it 'defaults retry to true' do
+      assert_equal true, Sidekiq::Client.normalize_item('class' => QueuedWorker, 'args' => [])['retry']
     end
   end
 end
