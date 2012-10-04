@@ -33,7 +33,7 @@ module Sidekiq
     class Queue
       def push(data)
         options = data.is_a?(Sidekiq::Worker) ?
-          data.class.get_sidekiq_options : Sidekiq::Worker::DEFAULT_SIDEKIQ_OPTIONS
+          data.class.get_sidekiq_options : Sidekiq::Worker::DEFAULT_OPTIONS
         Sidekiq::Client.push(options.merge('class' => RailsProxyWorker, 'args' => [Marshal.dump(data)]))
       end
     end

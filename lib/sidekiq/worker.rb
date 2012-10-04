@@ -30,6 +30,8 @@ module Sidekiq
       Sidekiq.logger
     end
 
+    DEFAULT_OPTIONS = { 'retry' => true, 'queue' => 'default' }
+
     module ClassMethods
       def perform_async(*args)
         client_push('class' => self, 'args' => args)
@@ -54,8 +56,6 @@ module Sidekiq
       def sidekiq_options(opts={})
         self.sidekiq_options_hash = get_sidekiq_options.merge(stringify_keys(opts || {}))
       end
-
-      DEFAULT_OPTIONS = { 'retry' => true, 'queue' => 'default' }
 
       def get_sidekiq_options # :nodoc:
         self.sidekiq_options_hash ||= DEFAULT_OPTIONS

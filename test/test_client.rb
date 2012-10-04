@@ -45,7 +45,7 @@ class TestClient < MiniTest::Unit::TestCase
     end
 
     it 'has default options' do
-      assert_equal Sidekiq::Worker::ClassMethods::DEFAULT_OPTIONS, MyWorker.get_sidekiq_options
+      assert_equal Sidekiq::Worker::DEFAULT_OPTIONS, MyWorker.get_sidekiq_options
     end
 
     it 'handles perform_async' do
