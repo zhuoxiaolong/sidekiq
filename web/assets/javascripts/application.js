@@ -1,10 +1,6 @@
-//= require vendor/jquery
-//= require vendor/jquery.timeago
-//= require bootstrap
-//= require_tree .
-
 $(function() {
-  $.timeago.settings.allowFuture = true
+  $.timeago.settings.allowFuture = true;
+  $.timeago.settings.refreshMillis = 0;
   $("time").timeago();
 });
 
@@ -24,31 +20,59 @@ $(function() {
 
   $('a[name=poll]').data('polling', false);
 
+  var pollStatus = $('.poll-status');
+
+  var pollStatusText = pollStatus.find('.text');
+  var pollStatusBadge = pollStatus.find('.badge');
+  pollStatusBadge.hide();
+  var pollStatusMarkup = pollStatus.html();
+
   $('a[name=poll]').on('click', function(e) {
     e.preventDefault();
+
     var pollLink = $(this);
+
     if (pollLink.data('polling')) {
+
+      $(this).removeClass('active');
+
       clearInterval(pollLink.data('interval'));
-      pollLink.text('Live Poll');
-      $('.poll-status').text('');
-    }
-    else {
+      pollLink.text(pollLink.data('text'));
+
+      pollStatus.html(pollStatusMarkup);
+      pollStatusBadge.hide();
+
+    } else {
+
+      $(this).addClass('active');
+
       var href = pollLink.attr('href');
-      pollLink.data('interval', setInterval(function() {
-        $.get(href, function(data) {
-          var responseHtml = $(data);
-          $('.hero-unit').replaceWith(responseHtml.find('.hero-unit'));
-          $('.workers').replaceWith(responseHtml.find('.workers'));
-          $('time').timeago();
-        });
-        var currentTime = new Date();
-        $('.poll-status').text('Last polled at: ' + currentTime.getHours() + ':' + pad(currentTime.getMinutes()) + ':' + pad(currentTime.getSeconds()));
-      }, 2000));
-      $('.poll-status').text('Starting to poll...');
+
+      pollLink.data('text', pollLink.text());
       pollLink.text('Stop Polling');
+      pollLink.data('interval', setInterval(function(){
+        livePoll(href);
+      }, 2000));
+
+      pollStatusText.text('Starting to poll...');
     }
+
     pollLink.data('polling', !pollLink.data('polling'));
-  })
+
+  });
+
+  livePoll = function livePoll(href){
+    $.get(href, function(data) {
+      var responseHtml = $(data);
+      $('.summary').replaceWith(responseHtml.find('.summary'));
+      $('.status').html(responseHtml.find('.status').html().toString());
+      $('.workers').replaceWith(responseHtml.find('.workers'));
+      $('time').timeago();
+    });
+    var currentTime = new Date();
+    $('.poll-status .text').text('Last polled: ');
+    $('.poll-status .time').show().text(currentTime.getHours() + ':' + pad(currentTime.getMinutes()) + ':' + pad(currentTime.getSeconds()));
+  };
 });
 
 $(function() {

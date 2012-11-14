@@ -40,16 +40,7 @@ module Sidekiq
       normed, payload = process_single(item['class'], normed)
 
       pushed = false
-      Sidekiq.redis do |conn|
-        if normed['at']
-          pushed = conn.zadd('schedule', normed['at'].to_s, payload)
-        else
-          _, pushed = conn.multi do
-            conn.sadd('queues', normed['queue'])
-            conn.rpush("queue:#{normed['queue']}", payload)
-          end
-        end
-      end if normed
+      pushed = raw_push(normed, payload) if normed
       pushed ? normed['jid'] : nil
     end
 
@@ -104,6 +95,21 @@ module Sidekiq
 
     private
 
+    def self.raw_push(normed, payload) # :nodoc:
+      pushed = false
+      Sidekiq.redis do |conn|
+        if normed['at']
+          pushed = conn.zadd('schedule', normed['at'].to_s, payload)
+        else
+          _, pushed = conn.multi do
+            conn.sadd('queues', normed['queue'])
+            conn.rpush("queue:#{normed['queue']}", payload)
+          end
+        end
+      end
+      pushed
+    end
+
     def self.process_single(worker_class, item)
       queue = item['queue']
 
@@ -120,7 +126,7 @@ module Sidekiq
 
       normalized_item = item['class'].get_sidekiq_options.merge(item.dup)
       normalized_item['class'] = normalized_item['class'].to_s
-      normalized_item['retry'] = !!normalized_item['retry']
+      normalized_item['retry'] = !!normalized_item['retry'] unless normalized_item['retry'].is_a?(Fixnum)
       normalized_item['jid'] = SecureRandom.hex(12)
 
       normalized_item

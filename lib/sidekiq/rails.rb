@@ -11,7 +11,7 @@ module Sidekiq
 
   class Rails < ::Rails::Engine
     config.autoload_paths << File.expand_path("#{config.root}/app/workers") if File.exist?("#{config.root}/app/workers")
-    config.queue = Sidekiq::Client::Queue if ::Rails.version > '4'
+    config.queue = Sidekiq::Client::Queue.new if ::Rails.version > '4'
 
     initializer 'sidekiq' do
       Sidekiq.hook_rails!

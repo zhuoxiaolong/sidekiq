@@ -32,12 +32,10 @@ module Sidekiq
         return if Sidekiq::Fetcher.done?
 
         begin
-          queue = nil
-          msg = nil
-          Sidekiq.redis { |conn| queue, msg = conn.blpop(*queues_cmd) }
+          queue, msg = Sidekiq.redis { |conn| conn.blpop(*queues_cmd) }
 
           if msg
-            @mgr.assign!(msg, queue.gsub(/.*queue:/, ''))
+            @mgr.async.assign(msg, queue.gsub(/.*queue:/, ''))
           else
             after(0) { fetch }
           end

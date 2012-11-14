@@ -23,7 +23,7 @@ end
 
 if Rails.version > '4'
   class TestApp < Rails::Application
-    config.queue = Sidekiq::Client::Queue
+    config.queue = Sidekiq::Client::Queue.new
   end
 
   class TestRailsQueue < MiniTest::Unit::TestCase

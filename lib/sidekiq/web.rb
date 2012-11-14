@@ -1,42 +1,16 @@
 require 'sinatra/base'
 require 'slim'
-require 'sprockets'
 require 'sidekiq/paginator'
 
 module Sidekiq
-  class SprocketsMiddleware
-    def initialize(app, options={})
-      @app = app
-      @root = options[:root]
-      path   =  options[:path] || 'assets'
-      @matcher = /^\/#{path}\/*/
-      @environment = ::Sprockets::Environment.new(@root)
-      @environment.append_path 'assets/javascripts'
-      @environment.append_path 'assets/javascripts/vendor'
-      @environment.append_path 'assets/stylesheets'
-      @environment.append_path 'assets/stylesheets/vendor'
-      @environment.append_path 'assets/images'
-    end
-
-    def call(env)
-      # Solve the problem of people requesting /sidekiq when they need to request /sidekiq/ so
-      # that relative links in templates resolve correctly.
-      return [301, { 'Location' => "#{env['SCRIPT_NAME']}/", 'Content-Type' => 'text/html' }, ['redirecting']] if env['SCRIPT_NAME'] == env['REQUEST_PATH']
-
-      return @app.call(env) unless @matcher =~ env["PATH_INFO"]
-      env['PATH_INFO'].sub!(@matcher,'')
-      @environment.call(env)
-    end
-  end
-
   class Web < Sinatra::Base
     include Sidekiq::Paginator
 
     dir = File.expand_path(File.dirname(__FILE__) + "/../../web")
+    set :public_folder, "#{dir}/assets"
     set :views,  "#{dir}/views"
     set :root, "#{dir}/public"
     set :slim, :pretty => true
-    use SprocketsMiddleware, :root => dir
 
     helpers do
 
@@ -97,6 +71,10 @@ module Sidekiq
 
       def root_path
         "#{env['SCRIPT_NAME']}/"
+      end
+
+      def current_path
+        @current_path ||= request.path_info.gsub(/^\//,'')
       end
 
       def current_status
@@ -163,6 +141,13 @@ module Sidekiq
         conn.srem("queues", params[:name])
       end
       redirect "#{root_path}queues"
+    end
+
+    post "/queues/:name/delete" do
+      Sidekiq.redis do |conn|
+        conn.lrem("queue:#{params[:name]}", 0, params[:key_val])
+      end
+      redirect "#{root_path}queues/#{params[:name]}"
     end
 
     get "/retries/:score" do
@@ -241,9 +226,15 @@ module Sidekiq
     end
 
     def self.tabs
-      @tabs ||= ["Queues", "Retries", "Scheduled"]
+      @tabs ||= {
+        "Workers"   =>'',
+        "Queues"    =>'queues',
+        "Retries"   =>'retries',
+        "Scheduled" =>'scheduled'
+      }
     end
 
   end
 
 end
+

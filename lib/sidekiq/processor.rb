@@ -34,8 +34,9 @@ module Sidekiq
       defer do
         begin
           msg = Sidekiq.load_json(msgstr)
-          klass  = constantize(msg['class'])
+          klass  = msg['class'].constantize
           worker = klass.new
+          worker.jid = msg['jid']
 
           stats(worker, msg, queue) do
             Sidekiq.server_middleware.invoke(worker, msg, queue) do
@@ -47,7 +48,7 @@ module Sidekiq
           raise
         end
       end
-      @boss.processor_done!(current_actor)
+      @boss.async.processor_done(current_actor)
     end
 
     # See http://github.com/tarcieri/celluloid/issues/22
@@ -95,7 +96,7 @@ module Sidekiq
     end
 
     # Singleton classes are not clonable.
-    SINGLETON_CLASSES = [ NilClass, TrueClass, FalseClass, Symbol, Fixnum, Float ].freeze
+    SINGLETON_CLASSES = [ NilClass, TrueClass, FalseClass, Symbol, Fixnum, Float, Bignum ].freeze
 
     # Clone the arguments passed to the worker so that if
     # the message fails, what is pushed back onto Redis hasn't

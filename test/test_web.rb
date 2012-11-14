@@ -27,14 +27,14 @@ class TestWeb < MiniTest::Unit::TestCase
     it 'can display home' do
       get '/'
       assert_equal 200, last_response.status
-      assert_match /Sidekiq is idle/, last_response.body
+      assert_match /status-idle/, last_response.body
       refute_match /default/, last_response.body
     end
 
     it 'can display poll' do
       get '/poll'
       assert_equal 200, last_response.status
-      assert_match /hero-unit/, last_response.body
+      assert_match /summary/, last_response.body
       assert_match /workers/, last_response.body
       refute_match /navbar/, last_response.body
     end
@@ -72,6 +72,24 @@ class TestWeb < MiniTest::Unit::TestCase
 
       Sidekiq.redis do |conn|
         refute conn.smembers('queues').include?('foo')
+      end
+    end
+    
+    it 'can delete a job' do
+      Sidekiq.redis do |conn|
+        conn.rpush('queue:foo', "{}")
+        conn.rpush('queue:foo', "{\"foo\":\"bar\"}")
+        conn.rpush('queue:foo', "{\"foo2\":\"bar2\"}")
+      end
+
+      get '/queues/foo'
+      assert_equal 200, last_response.status
+
+      post '/queues/foo/delete', key_val: "{\"foo\":\"bar\"}"
+      assert_equal 302, last_response.status
+
+      Sidekiq.redis do |conn|
+        refute conn.lrange('queue:foo', 0, -1).include?("{\"foo\":\"bar\"}")
       end
     end
 
@@ -149,12 +167,15 @@ class TestWeb < MiniTest::Unit::TestCase
     end
 
     it 'can show user defined tab' do
-      Sidekiq::Web.tabs << 'Custom Tab'
+      begin
+        Sidekiq::Web.tabs['Custom Tab'] = '/custom'
 
-      get '/'
-      assert_match 'Custom Tab', last_response.body
+        get '/'
+        assert_match 'Custom Tab', last_response.body
 
-      Sidekiq::Web.tabs.delete 'Custom Tab'
+      ensure
+        Sidekiq::Web.tabs.delete 'Custom Tab'
+      end
     end
 
     def add_scheduled

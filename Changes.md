@@ -1,3 +1,55 @@
+HEAD
+-----------
+
+- Add `delay_until` so you can delay jobs until a specific timestamp:
+
+```ruby
+Auction.delay_until(@auction.ends_at).close(@auction.id)
+```
+
+This is identical to the existing Sidekiq::Worker method, `perform_at`.
+
+2.5.2
+-----------
+
+- Remove asset pipeline from Web UI for much faster, simpler runtime.  [#499, #490, #481]
+- Add -g option so the procline better identifies a Sidekiq process, defaults to File.basename(Rails.root). [#486]
+
+    sidekiq 2.5.1 myapp [0 of 25 busy]
+
+- Add splay to retry time so groups of failed jobs don't fire all at once. [#483]
+
+2.5.1
+-----------
+
+- Fix issues with core\_ext
+
+2.5.0
+-----------
+
+- REDESIGNED WEB UI! [unity, cavneb]
+- Support Honeybadger for error delivery
+- Inline testing runs the client middleware before executing jobs [#465]
+- Web UI can now remove jobs from queue. [#466, dleung]
+- Web UI can now show the full message, not just 100 chars [#464, dleung]
+- Add APIs for manipulating the retry and job queues.  See sidekiq/api. [#457]
+
+
+2.4.0
+-----------
+
+- ActionMailer.delay.method now only tries to deliver if method returns a valid message.
+- Logging now uses "MSG-#{Job ID}", not a random msg ID
+- Allow generic Redis provider as environment variable. [#443]
+- Add ability to customize sidekiq\_options with delay calls [#450]
+
+```ruby
+Foo.delay(:retry => false).bar
+Foo.delay(:retry => 10).bar
+Foo.delay(:timeout => 10.seconds).bar
+Foo.delay_for(5.minutes, :timeout => 10.seconds).bar
+```
+
 2.3.3
 -----------
 

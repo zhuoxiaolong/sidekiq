@@ -70,6 +70,11 @@ class TestCli < MiniTest::Unit::TestCase
       assert_equal %w(queue_one queue-two), Sidekiq.options[:queues]
     end
 
+    it 'handles queues with dots in the name' do
+      @cli.parse(['sidekiq', '-q', 'foo.bar', '-r', './test/fake_env.rb'])
+      assert_equal ['foo.bar'], Sidekiq.options[:queues]
+    end
+
     it 'sets verbose' do
       old = Sidekiq.logger.level
       @cli.parse(['sidekiq', '-v', '-r', './test/fake_env.rb'])
@@ -130,7 +135,7 @@ class TestCli < MiniTest::Unit::TestCase
       end
 
       it 'sets queues' do
-        assert_equal 2, Sidekiq.options[:queues].count { |q| q == 'often' }
+        assert_equal 2, Sidekiq.options[:queues].count { |q| q == 'very_often' }
         assert_equal 1, Sidekiq.options[:queues].count { |q| q == 'seldom' }
       end
     end
@@ -186,9 +191,29 @@ class TestCli < MiniTest::Unit::TestCase
 
     describe 'Sidekiq::CLI#parse_queues' do
       describe 'when weight is present' do
+        it 'concatenates queues by factor of weight and sets strict to false' do
+          opts = {}
+          @cli.send :parse_queues, opts, [['often', 7]]
+          assert_equal %w[often] * 7, opts[:queues]
+          assert !opts[:strict]
+        end
+      end
+
+      describe 'when weight is not present' do
+        it 'returns queues and sets strict' do
+          opts = {}
+          @cli.send :parse_queues, opts, [['once']]
+          assert_equal %w[once], opts[:queues]
+          assert opts[:strict]
+        end
+      end
+    end
+
+    describe 'Sidekiq::CLI#parse_queue' do
+      describe 'when weight is present' do
         it 'concatenates queue to opts[:queues] weight number of times' do
           opts = {}
-          @cli.send :parse_queues, opts, 'often', 7
+          @cli.send :parse_queue, opts, 'often', 7
           assert_equal %w[often] * 7, opts[:queues]
         end
       end
@@ -196,7 +221,7 @@ class TestCli < MiniTest::Unit::TestCase
       describe 'when weight is not present' do
         it 'concatenates queue to opts[:queues] once' do
           opts = {}
-          @cli.send :parse_queues, opts, 'once', nil
+          @cli.send :parse_queue, opts, 'once', nil
           assert_equal %w[once], opts[:queues]
         end
       end

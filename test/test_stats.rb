@@ -21,6 +21,7 @@ class TestStats < MiniTest::Unit::TestCase
     it 'updates global stats in the success case' do
       msg = Sidekiq.dump_json({ 'class' => DumbWorker.to_s, 'args' => [""] })
       boss = MiniTest::Mock.new
+      actor = MiniTest::Mock.new
 
       @redis.with do |conn|
 
@@ -28,9 +29,10 @@ class TestStats < MiniTest::Unit::TestCase
         assert_equal 0, set.size
 
         processor = Sidekiq::Processor.new(boss)
-        boss.expect(:processor_done!, nil, [processor])
-        boss.expect(:processor_done!, nil, [processor])
-        boss.expect(:processor_done!, nil, [processor])
+        3.times do
+          actor.expect(:processor_done, nil, [processor])
+          boss.expect(:async, actor, [])
+        end
 
         assert_equal 0, Sidekiq.info[:failed]
         assert_equal 0, Sidekiq.info[:processed]
@@ -55,7 +57,6 @@ class TestStats < MiniTest::Unit::TestCase
 
         processor = Sidekiq::Processor.new(boss)
 
-        pstr = processor.to_s
         assert_raises RuntimeError do
           processor.process(msg, 'xyzzy')
         end
@@ -71,24 +72,23 @@ class TestStats < MiniTest::Unit::TestCase
           conn.rpush 'queue:foo', '{}'
           conn.sadd 'queues', 'foo'
 
-          conn.rpush 'queue:bar', '{}'
-          conn.rpush 'queue:bar', '{}'
+          3.times { conn.rpush 'queue:bar', '{}' }
           conn.sadd 'queues', 'bar'
 
-          conn.rpush 'queue:baz', '{}'
+          2.times { conn.rpush 'queue:baz', '{}' }
           conn.sadd 'queues', 'baz'
         end
       end
 
       describe "queues_with_sizes" do
         it "returns queue names and corresponding job counts" do
-          assert_equal [["foo", 1], ["baz", 1], ["bar", 2]], Sidekiq.info[:queues_with_sizes]
+          assert_equal [["foo", 1], ["baz", 2], ["bar", 3]], Sidekiq.info[:queues_with_sizes]
         end
       end
 
       describe "backlog" do
         it "returns count of all jobs yet to be processed" do
-          assert_equal 4, Sidekiq.info[:backlog]
+          assert_equal 6, Sidekiq.info[:backlog]
         end
       end
 
@@ -97,8 +97,8 @@ class TestStats < MiniTest::Unit::TestCase
           assert_equal 0, Sidekiq.size("foox")
           assert_equal 1, Sidekiq.size(:foo)
           assert_equal 1, Sidekiq.size("foo")
-          assert_equal 3, Sidekiq.size("foo", "bar")
-          assert_equal 4, Sidekiq.size
+          assert_equal 4, Sidekiq.size("foo", "bar")
+          assert_equal 6, Sidekiq.size
         end
       end
     end

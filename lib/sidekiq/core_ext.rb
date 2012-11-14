@@ -51,4 +51,34 @@ rescue LoadError
   end
 end
 
+begin
+  require 'active_support/core_ext/hash/keys'
+rescue LoadError
+  class Hash
+    def stringify_keys
+      keys.each do |key|
+        self[key.to_s] = delete(key)
+      end
+      self
+    end
+  end if !{}.respond_to?(:stringify_keys)
+end
+
+begin
+  require 'active_support/core_ext/string/inflections'
+rescue LoadError
+  class String
+    def constantize
+      names = self.split('::')
+      names.shift if names.empty? || names.first.empty?
+
+      constant = Object
+      names.each do |name|
+        constant = constant.const_defined?(name) ? constant.const_get(name) : constant.const_missing(name)
+      end
+      constant
+    end
+  end if !"".respond_to?(:constantize)
+end
+
 
