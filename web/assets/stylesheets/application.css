@@ -324,8 +324,11 @@ img.smallogo {
   font-size: 0.9em;
 }
 @media (max-width: 767px) {
+  .stats-container {
+    display: block;
+  }
   .stat {
-    float: none;
+    float: left;
     margin-right: 10px;
     width: 100%;
     text-align: left;
